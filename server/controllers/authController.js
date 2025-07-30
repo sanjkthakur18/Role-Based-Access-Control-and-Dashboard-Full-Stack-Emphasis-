@@ -7,15 +7,26 @@ exports.register = async (req, res, next) => {
     try {
         const { name, email, password, role } = req.body
 
+        if (!name || !email || !password || !role) {
+            return res.status(400).json({ message: 'All fields are required' })
+        }
+
         const existingUser = await User.findOne({ email })
         if (existingUser) {
             return res.status(400).json({ message: 'Email already in use' })
         }
 
+        if (role === 'admin') {
+            const existingAdmin = await User.findOne({ role: 'admin' })
+            if (existingAdmin) {
+                return res.status(400).json({ message: 'An admin already exists' })
+            }
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10)
         const user = await User.create({ name, email, password: hashedPassword, role })
 
-        await Log.create({ user: user._id, action: "Registered new user" });
+        await Log.create({ user: user._id, action: "Registered new user" })
         res.status(201).json({ message: 'User created', user })
     } catch (err) {
         next(err)
@@ -33,7 +44,7 @@ exports.login = async (req, res, next) => {
             expiresIn: '1d',
         })
 
-        await Log.create({ user: user._id, action: "User logged in" });
+        await Log.create({ user: user._id, action: "User logged in" })
         res.json({ token: token, role: user.role })
     } catch (err) {
         next(err)
@@ -52,7 +63,7 @@ exports.deleteUser = async (req, res) => {
         user.isDeleted = true
         await user.save()
 
-        await Log.create({ user: user._id, action: "User deleted" });
+        await Log.create({ user: user._id, action: "User deleted" })
         res.status(200).json({ message: 'User soft deleted successfully' })
     } catch (error) {
         console.error('Delete user error:', error.message)

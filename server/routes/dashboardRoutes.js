@@ -6,26 +6,63 @@ const { protect, authorize } = require('../middleware/authMiddleware')
 const User = require('../models/User')
 const Log = require('../models/Log')
 
-router.get('/users', protect, authorize('admin'), async (req, res) => {
-    const page = parseInt(req.query.page) || 1
-    const limit = parseInt(req.query.limit) || 10
-    const skip = (page - 1) * limit
+router.get('/users', protect, async (req, res) => {
+    const page = parseInt(req.query.page)
+    const limit = parseInt(req.query.limit)
 
     const query = {
         isDeleted: false,
         role: { $ne: 'admin' }
     }
 
-    const users = await User.find(query).skip(skip).limit(limit)
-    const total = await User.countDocuments()
+    let usersQuery = User.find(query)
 
-    res.json({ users, total, page, pages: Math.ceil(total / limit) })
+    if (!isNaN(page) && !isNaN(limit)) {
+        const skip = (page - 1) * limit
+        usersQuery = usersQuery.skip(skip).limit(limit)
+    }
+
+    const [users, total] = await Promise.all([
+        usersQuery,
+        User.countDocuments(query)
+    ])
+
+    const response = { users, total }
+
+    if (!isNaN(page) && !isNaN(limit)) {
+        response.page = page
+        response.pages = Math.ceil(total / limit)
+    }
+
+    res.json(response)
 })
 
-router.patch('/users/:id/role', protect, authorize('admin'), async (req, res) => {
-    const user = await User.findByIdAndUpdate(req.params.id, { role: req.body.role }, { new: true })
-    await Log.create({ user: user._id, action: "User updated" });
-    res.json(user)
+router.patch('/users/:id', protect, authorize('admin'), async (req, res) => {
+    try {
+        const allowedFields = ['name', 'email', 'role']
+        const updateData = {}
+
+        for (let field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                updateData[field] = req.body[field]
+            }
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            { new: true }
+        )
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' })
+        }
+
+        await Log.create({ user: user._id, action: "User updated" })
+        res.json(user)
+    } catch (err) {
+        res.status(500).json({ message: err.message })
+    }
 })
 
 // router.delete('/users/:id', protect, authorize('admin'), async (req, res) => {
